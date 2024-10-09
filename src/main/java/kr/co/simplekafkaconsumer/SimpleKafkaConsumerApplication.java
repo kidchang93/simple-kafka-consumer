@@ -8,10 +8,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 
 @Slf4j
 @SpringBootApplication
@@ -33,61 +30,87 @@ public class SimpleKafkaConsumerApplication {
          이후 데이터를 처리하기 때문이다.*/
         configs.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         configs.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-
+//        configs.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false); // 리밸런스 발생시 수동 커밋을 위해 false로 설정.
         KafkaConsumer<String,String> consumer = new KafkaConsumer<>(configs);
+        Map<TopicPartition, OffsetAndMetadata> currentOffsets = new HashMap<>();
         /*컨슈머에게 토픽을 할당하기 위해 subscribe() 메서드를 사용한다.
         이 메서드는 collection 타입의 String 값들을 받는데, 1개 이상의 토픽 이름을 받을 수 있다.*/
-        consumer.subscribe(Arrays.asList(TOPIC_NAME));
-
+//        consumer.subscribe(Arrays.asList(TOPIC_NAME));
+//        리밸런스 방식시 사용하는 subscribe
+        consumer.subscribe(Arrays.asList(TOPIC_NAME), new RebalanceListener());
         /**
         * 컨슈머는 poll() 메서드를 호출하여 데이터를 가져와서 처리한다.
         * 지속적으로 반복 호출 하기 때문에 무한루프 만들어줌
         */
-        /*while (true) {
-            *//*
-            poll() 메서드는 Duration 타입의 인자를 받는데 이 인자 값은 브로커로부터 데이터를 가져올때
-            컨슈머 버퍼에 데이터를 기다리기위한 타임아웃 간격을 뜻한다.
-            *//*
-            ConsumerRecords<String,String> records = consumer.poll(Duration.ofSeconds(1));
-            for (ConsumerRecord<String, String> record : records){
-                log.info("레코드 : {}",record);
-            }
-        }*/
+//        while (true) {
+//
+//            /*poll() 메서드는 Duration 타입의 인자를 받는데 이 인자 값은 브로커로부터 데이터를 가져올때
+//            컨슈머 버퍼에 데이터를 기다리기위한 타임아웃 간격을 뜻한다.*/
+//
+//            ConsumerRecords<String,String> records = consumer.poll(Duration.ofSeconds(1));
+//            for (ConsumerRecord<String, String> record : records){
+//                log.info("레코드 : {}",record);
+//            }
+//        }
         /**
          * consumer sync-offset-commit
          * 동기, 비동기 방식
          */
-        while (true) {
-
-            ConsumerRecords<String,String> records = consumer.poll(Duration.ofSeconds(1));
-            Map<TopicPartition, OffsetAndMetadata> currentOffset = new HashMap<>();
-            for (ConsumerRecord<String, String> record : records){
-
-                log.info("레코드 : {}",record);
-
-                currentOffset.put(
-                        new TopicPartition(record.topic(), record.partition()),
-                        new OffsetAndMetadata(record.offset() + 1, null)
-                );
-                /*동기*/
+//        while (true) {
+//
+//            ConsumerRecords<String,String> records = consumer.poll(Duration.ofSeconds(1));
+//            Map<TopicPartition, OffsetAndMetadata> currentOffset = new HashMap<>();
+//            for (ConsumerRecord<String, String> record : records){
+//
+//                log.info("레코드 : {}",record);
+//
+//                currentOffset.put(
+//                        new TopicPartition(record.topic(), record.partition()),
+//                        new OffsetAndMetadata(record.offset() + 1, null)
+//                );
+////                동기 방식
 //                consumer.commitSync(currentOffset);
-                /*비동기*/
-                consumer.commitAsync(new OffsetCommitCallback() {
-                    @Override
-                    public void onComplete(Map<TopicPartition, OffsetAndMetadata> offset, Exception e) {
-                        if (e != null){
-                            log.error("commit failed",e);
+////                비동기 방식
+//                consumer.commitAsync(new OffsetCommitCallback() {
+//                    @Override
+//                    public void onComplete(Map<TopicPartition, OffsetAndMetadata> offset, Exception e) {
+//                        if (e != null){
+//                            log.error("commit failed",e);
+//
+//                        } else {
+//                            log.info("commit success");
+//
+//                        }
+//                        if (e != null){
+//                            log.error("commit failed,offset : {}",offset,e);
+//                        }
+//                    }
+//                });
+//
+//            }
+//        }
+//
+        /**
+         * 리밸런스 리스너
+         */
+        while (true) {
+            ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(1));
+            for (ConsumerRecord<String, String> record : records) {
+                currentOffsets.put(new TopicPartition(record.topic(), record.partition()),
+                        new OffsetAndMetadata(record.offset() + 1, null));
+                consumer.commitAsync();
 
-                        } else {
-                            log.info("commit success");
-
-                        }
-                        if (e != null){
-                            log.error("commit failed,offset : {}",offset,e);
-                        }
-                    }
-                });
             }
         }
     }
+    private static class RebalanceListener implements ConsumerRebalanceListener {
+        public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
+            log.warn("Partitions are assigned");
+        }
+        public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
+            log.warn("Partitions are revoked");
+//            consumer.commitSync(currentOffsets);
+        }
+    }
 }
+
